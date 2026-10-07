@@ -35,11 +35,19 @@ local function threatHidden(mobUnit)
 end
 
 -- The cast bar question mark is the most visible symptom of the whole system, so the
--- spell currently being cast gets its own answer when there is one.
+-- spell currently being cast or channelled gets its own answer when there is one.
+-- UnitCastingInfo returns spellId 9th; UnitChannelInfo 8th (no castID in between).
 local function castHidden(unit)
-    local spellId = select(9, UnitCastingInfo(unit))
-    if not spellId then return false end
-    return ask(C_Secrets.ShouldUnitSpellCastBeSecret, unit, spellId)
+    local casting = UnitCastingInfo(unit)
+    local channeling = UnitChannelInfo(unit)
+    if casting and channeling then channeling = nil end -- cast wins; bar shows the cast
+    if casting then
+        return ask(C_Secrets.ShouldUnitSpellCastBeSecret, unit, select(9, casting))
+    end
+    if channeling then
+        return ask(C_Secrets.ShouldUnitSpellCastBeSecret, unit, select(8, channeling))
+    end
+    return false
 end
 
 -- The C_Secrets predicates only answer yes or no; the reason is inferred from where
