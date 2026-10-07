@@ -1,0 +1,10 @@
+## Interface: 16001, 120105
+## Title: WhyHidden
+## Notes: Shows which values the client is hiding from addons right now, and why.
+## Author: Booyaka101
+## Version: 0.1.0
+## IconTexture: Interface/Icons/INV_Misc_QuestionMark
+## X-Category: Interface Enhancements
+## X-Website: https://github.com/Booyaka101/whyhidden
+
+WhyHidden.lua
