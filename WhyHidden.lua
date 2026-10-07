@@ -6,8 +6,6 @@
 -- It reads the client's own predicate API (C_Secrets) and reports what is hidden
 -- for whatever you point it at.
 
-local ADDON_NAME = ...
-
 -- Every C_Secrets call is wrapped: the API is tagged AllowedWhenUntainted and the
 -- Forever beta moves week to week, so a signature change must degrade to "unknown"
 -- rather than throw. A nil return here always means "could not ask", never "visible".
@@ -27,6 +25,7 @@ local UNIT_CHECKS = {
     { label = "name",          fn = function(u) return C_Secrets.ShouldUnitIdentityBeSecret(u) end },
     { label = "health",        fn = function(u) return C_Secrets.ShouldUnitHealthMaxBeSecret(u) end },
     { label = "power",         fn = function(u) return C_Secrets.ShouldUnitPowerBeSecret(u, UnitPowerType(u)) end },
+    { label = "power max",     fn = function(u) return C_Secrets.ShouldUnitPowerMaxBeSecret(u, UnitPowerType(u)) end },
     { label = "stats",         fn = function(u) return C_Secrets.ShouldUnitStatsBeSecret(u) end },
     { label = "casting",       fn = function(u) return C_Secrets.ShouldUnitSpellCastingBeSecret(u) end },
 }
@@ -35,10 +34,18 @@ local function threatHidden(mobUnit)
     return ask(C_Secrets.ShouldUnitThreatValuesBeSecret, "player", mobUnit)
 end
 
+-- The cast bar question mark is the most visible symptom of the whole system, so the
+-- spell currently being cast gets its own answer when there is one.
+local function castHidden(unit)
+    local spellId = select(9, UnitCastingInfo(unit))
+    if not spellId then return false end
+    return ask(C_Secrets.ShouldUnitSpellCastBeSecret, unit, spellId)
+end
+
 -- The C_Secrets predicates only answer yes or no; the reason is inferred from where
 -- you are. That is honest as long as the wording stays a context, not a claimed cause.
 local function contextLine()
-    local _, instanceType, difficultyID = GetInstanceInfo()
+    local _, instanceType = GetInstanceInfo()
     if instanceType == "arena" then
         return "In an arena: values are hidden so addons cannot decide for you."
     elseif instanceType == "pvp" then
@@ -51,21 +58,19 @@ end
 
 local function hiddenList(unit)
     local hidden, unknown = {}, 0
-    for _, check in ipairs(UNIT_CHECKS) do
-        local result = ask(check.fn, unit)
+    local function record(label, result)
         if result == true then
-            hidden[#hidden + 1] = check.label
+            hidden[#hidden + 1] = label
         elseif result == nil then
             unknown = unknown + 1
         end
     end
+    for _, check in ipairs(UNIT_CHECKS) do
+        record(check.label, ask(check.fn, unit))
+    end
+    record("current cast", castHidden(unit))
     if UnitCanAttack("player", unit) then
-        local result = threatHidden(unit)
-        if result == true then
-            hidden[#hidden + 1] = "threat"
-        elseif result == nil then
-            unknown = unknown + 1
-        end
+        record("threat", threatHidden(unit))
     end
     return hidden, unknown
 end
@@ -80,16 +85,16 @@ local function describeUnit(unit, prefix)
     local hidden, unknown = hiddenList(unit)
     local summary
     if #hidden == 0 and unknown == 0 then
-        summary = GREEN .. "nothing hidden"
+        summary = GREEN .. "nothing hidden|r"
     elseif #hidden == 0 then
-        summary = GREY .. "unknown (" .. unknown .. ")"
+        summary = GREY .. "unknown (" .. unknown .. ")|r"
     else
-        summary = ORANGE .. table.concat(hidden, ", ")
+        summary = ORANGE .. table.concat(hidden, ", ") .. "|r"
         if unknown > 0 then
-            summary = summary .. GREY .. " (+" .. unknown .. " unknown)"
+            summary = summary .. GREY .. " (+" .. unknown .. " unknown)|r"
         end
     end
-    print(prefix .. " " .. (name or unit) .. ":|r " .. summary)
+    print(prefix .. " " .. (name or unit) .. ": " .. summary)
 end
 
 local function reportGlobal()
@@ -114,14 +119,19 @@ local function report(unitArg)
     reportGlobal()
     describeUnit("player", "  You")
     local unit = unitArg == "mouse" and "mouseover" or "target"
-    describeUnit(unit, "  " .. (unitArg == "mouse" and "Mouseover" or "Target"))
+    if not UnitExists(unit) and not UnitExists("mouseover") then
+        print(GREY .. "  Target or mouse over something, then /whh again.|r")
+        return
+    end
+    if not UnitExists(unit) then unit = "mouseover" end
+    describeUnit(unit, "  " .. (unit == "mouseover" and "Mouseover" or "Target"))
 end
 
 SLASH_WHYHIDDEN1 = "/whh"
 SLASH_WHYHIDDEN2 = "/whyhidden"
 SlashCmdList.WHYHIDDEN = function(msg)
     local arg = strlower(strtrim(msg or ""))
-    report(arg == "mouse" and "mouse" or nil)
+    report((arg == "mouse" or arg == "m") and "mouse" or nil)
 end
 
 -- Tooltip: one quiet line, only when something is actually hidden for that unit.
