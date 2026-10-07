@@ -119,11 +119,12 @@ local function report(unitArg)
     reportGlobal()
     describeUnit("player", "  You")
     local unit = unitArg == "mouse" and "mouseover" or "target"
-    if not UnitExists(unit) and not UnitExists("mouseover") then
+    local alt = unit == "mouseover" and "target" or "mouseover"
+    if not UnitExists(unit) then unit = alt end
+    if not UnitExists(unit) then
         print(GREY .. "  Target or mouse over something, then /whh again.|r")
         return
     end
-    if not UnitExists(unit) then unit = "mouseover" end
     describeUnit(unit, "  " .. (unit == "mouseover" and "Mouseover" or "Target"))
 end
 
@@ -143,7 +144,12 @@ GameTooltip:HookScript("OnTooltipSetUnit", function(self)
     local hidden = hiddenList(unit)
     if #hidden > 0 then
         self:AddLine("Hidden: " .. table.concat(hidden, ", "), 1, 0.6, 0.24, true)
-        self:AddLine("WhyHidden", 0.53, 0.53, 0.53)
+        local _, instanceType = GetInstanceInfo()
+        local where = instanceType == "arena" and " · arena"
+            or instanceType == "pvp" and " · battleground"
+            or instanceType == "raid" and " · raid"
+            or ""
+        self:AddLine("WhyHidden" .. where, 0.53, 0.53, 0.53)
     end
 end)
 
