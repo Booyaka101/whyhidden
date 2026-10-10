@@ -65,6 +65,7 @@ GameTooltip = {
 }
 local HOOKS = {}
 GameTooltip.HookScript = function(_, name, fn) HOOKS[name] = fn end
+GameTooltip.HasScript = function(_, name) return true end
 CURRENT_UNIT = nil
 GameTooltip.GetUnit = function() return UNITS[CURRENT_UNIT] and UNITS[CURRENT_UNIT].name, CURRENT_UNIT end
 
