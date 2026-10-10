@@ -145,9 +145,9 @@ end
 
 -- Tooltip: one quiet line, only when something is actually hidden for that unit.
 -- Tooltips that say nothing new are noise; this stays silent on visible values.
--- Wrapped in pcall: the tooltip script system changed in Midnight and OnTooltipSetUnit
--- may not be hookable on all clients.
-pcall(function()
+-- HasScript check: the tooltip system changed in Midnight and OnTooltipSetUnit
+-- may not exist on all clients (confirmed removed on Forever build 70338).
+if GameTooltip.HasScript and GameTooltip:HasScript("OnTooltipSetUnit") then
     GameTooltip:HookScript("OnTooltipSetUnit", function(self)
         if not restrictionsActive() then return end
         local ok, _, unit = pcall(self.GetUnit, self)
@@ -163,7 +163,7 @@ pcall(function()
             self:AddLine("WhyHidden" .. where, 0.53, 0.53, 0.53)
         end
     end)
-end)
+end
 
 -- A client without C_Secrets (Classic flavours) never reaches any of the above in a
 -- meaningful way, and the hooks are cheap no-ops when restrictions are off.
