@@ -145,20 +145,24 @@ end
 
 -- Tooltip: one quiet line, only when something is actually hidden for that unit.
 -- Tooltips that say nothing new are noise; this stays silent on visible values.
-GameTooltip:HookScript("OnTooltipSetUnit", function(self)
-    if not restrictionsActive() then return end
-    local ok, _, unit = pcall(self.GetUnit, self)
-    if not ok or not unit then return end
-    local hidden = hiddenList(unit)
-    if #hidden > 0 then
-        self:AddLine("Hidden: " .. table.concat(hidden, ", "), 1, 0.6, 0.24, true)
-        local _, instanceType = GetInstanceInfo()
-        local where = instanceType == "arena" and " · arena"
-            or instanceType == "pvp" and " · battleground"
-            or instanceType == "raid" and " · raid"
-            or ""
-        self:AddLine("WhyHidden" .. where, 0.53, 0.53, 0.53)
-    end
+-- Wrapped in pcall: the tooltip script system changed in Midnight and OnTooltipSetUnit
+-- may not be hookable on all clients.
+pcall(function()
+    GameTooltip:HookScript("OnTooltipSetUnit", function(self)
+        if not restrictionsActive() then return end
+        local ok, _, unit = pcall(self.GetUnit, self)
+        if not ok or not unit then return end
+        local hidden = hiddenList(unit)
+        if #hidden > 0 then
+            self:AddLine("Hidden: " .. table.concat(hidden, ", "), 1, 0.6, 0.24, true)
+            local _, instanceType = GetInstanceInfo()
+            local where = instanceType == "arena" and " · arena"
+                or instanceType == "pvp" and " · battleground"
+                or instanceType == "raid" and " · raid"
+                or ""
+            self:AddLine("WhyHidden" .. where, 0.53, 0.53, 0.53)
+        end
+    end)
 end)
 
 -- A client without C_Secrets (Classic flavours) never reaches any of the above in a
