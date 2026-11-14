@@ -6,6 +6,15 @@ end
 
 local function lastOut(n) return OUT[#OUT - (n or 0)] end
 
+local tooltipCallback = POST_CALL or HOOKS["OnTooltipSetUnit"]
+if TOOLTIP_MODE == "modern" or TOOLTIP_MODE == "both" then
+    expect(POST_CALL and not HOOKS["OnTooltipSetUnit"], "modern callback must be the only registration")
+elseif TOOLTIP_MODE == "legacy" then
+    expect(HOOKS["OnTooltipSetUnit"] and not POST_CALL, "legacy hook missing")
+else
+    expect(not tooltipCallback, "unsupported tooltip API must be skipped")
+end
+
 -- 1. PLAYER_LOGIN with restrictions on
 local dummyFrame = CreateFrame()
 EVENT_SCRIPTS["OnEvent"](dummyFrame, "PLAYER_LOGIN")
@@ -13,29 +22,46 @@ expect(OUT[1] and OUT[1]:find("secret restrictions are active", 1, true), "login
 expect(OUT[1]:find("/whh", 1, true), "login banner lacks /whh hint")
 
 -- 2. Tooltip on fully-hidden enemy target
-SECRETS.mode = "all"
-CURRENT_UNIT = "target"
-TOOLTIP_LINES = {}
-HOOKS["OnTooltipSetUnit"](GameTooltip)
-expect(#TOOLTIP_LINES == 2, "expected 2 tooltip lines, got " .. #TOOLTIP_LINES)
-expect(TOOLTIP_LINES[1]:find("name", 1, true), "identity not listed: " .. TOOLTIP_LINES[1])
-expect(TOOLTIP_LINES[1]:find("health", 1, true), "health not listed")
-expect(TOOLTIP_LINES[1]:find("power max", 1, true), "power max not listed")
-expect(TOOLTIP_LINES[1]:find("threat", 1, true), "threat not listed for hostile")
-expect(TOOLTIP_LINES[2]:find("WhyHidden · arena", 1, true), "context tag missing: " .. TOOLTIP_LINES[2])
+if tooltipCallback then
+    SECRETS.mode = "all"
+    CURRENT_UNIT = "target"
+    TOOLTIP_LINES = {}
+    tooltipCallback(GameTooltip)
+    expect(#TOOLTIP_LINES == 2, "expected 2 tooltip lines, got " .. #TOOLTIP_LINES)
+    expect(TOOLTIP_LINES[1]:find("name", 1, true), "identity not listed: " .. TOOLTIP_LINES[1])
+    expect(TOOLTIP_LINES[1]:find("health", 1, true), "health not listed")
+    expect(TOOLTIP_LINES[1]:find("power max", 1, true), "power max not listed")
+    expect(TOOLTIP_LINES[1]:find("threat", 1, true), "threat not listed for hostile")
+    expect(TOOLTIP_LINES[2]:find("WhyHidden · arena", 1, true), "context tag missing: " .. TOOLTIP_LINES[2])
 
--- 3. Tooltip on a visible unit stays silent
-SECRETS.mode = "none"
-TOOLTIP_LINES = {}
-HOOKS["OnTooltipSetUnit"](GameTooltip)
-expect(#TOOLTIP_LINES == 0, "tooltip noisy on visible unit: " .. table.concat(TOOLTIP_LINES, " / "))
+    -- 3. Tooltip on a visible unit stays silent
+    SECRETS.mode = "none"
+    TOOLTIP_LINES = {}
+    tooltipCallback(GameTooltip)
+    expect(#TOOLTIP_LINES == 0, "tooltip noisy on visible unit: " .. table.concat(TOOLTIP_LINES, " / "))
 
--- 4. Signature drift degrades to unknown, never errors
-SECRETS.mode = "break"
-TOOLTIP_LINES = {}
-local ok = pcall(HOOKS["OnTooltipSetUnit"], GameTooltip)
-expect(ok, "tooltip hook threw under signature drift")
-expect(#TOOLTIP_LINES == 2, "tooltip missing under drift: " .. #TOOLTIP_LINES)
+    -- 4. Signature drift degrades to unknown, never errors
+    SECRETS.mode = "break"
+    TOOLTIP_LINES = {}
+    local ok = pcall(tooltipCallback, GameTooltip)
+    expect(ok, "tooltip hook threw under signature drift")
+    expect(#TOOLTIP_LINES == 2, "tooltip missing under drift: " .. #TOOLTIP_LINES)
+
+    -- The global modern callback must not annotate other addons' tooltips.
+    TOOLTIP_LINES = {}
+    tooltipCallback({ AddLine = GameTooltip.AddLine, GetUnit = GameTooltip.GetUnit })
+    expect(#TOOLTIP_LINES == 0, "unrelated tooltip was annotated")
+
+    CURRENT_UNIT = nil
+    tooltipCallback(GameTooltip)
+    expect(#TOOLTIP_LINES == 0, "tooltip without a unit was annotated")
+    CURRENT_UNIT = "target"
+    local savedRestrictions = C_Secrets.HasSecretRestrictions
+    C_Secrets.HasSecretRestrictions = function() return false end
+    tooltipCallback(GameTooltip)
+    expect(#TOOLTIP_LINES == 0, "tooltip annotated with restrictions off")
+    C_Secrets.HasSecretRestrictions = savedRestrictions
+end
 
 -- 5. /whh full report with target
 SECRETS.mode = "all"
@@ -130,5 +156,5 @@ OUT = {}
 SlashCmdList.WHYHIDDEN("banana")
 expect(#OUT >= 3, "garbage arg broke the report: " .. #OUT .. " lines")
 
-io.write("ALL CHECKS PASSED (" .. #OUT .. " lines in final report)\n")
+io.write("ALL CHECKS PASSED (" .. TOOLTIP_MODE .. ", " .. #OUT .. " lines in final report)\n")
 io.write(table.concat(OUT, "\n") .. "\n")

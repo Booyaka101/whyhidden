@@ -15,13 +15,15 @@ const addon = fs.readFileSync(path.join(here, '..', '..', 'WhyHidden.lua'), 'utf
 const driver = read('driver.lua');
 
 // the addon must load as if from its own chunk: wrap it so its locals stay scoped
-const program = prelude + '\ndo\n' + addon + '\nend\n' + driver;
-
-const L = lua.lua_newstate();
-fengari.lualib.luaL_openlibs(L);
-const status = lauxlib.luaL_dostring(L, fengari.to_luastring(program));
-if (status !== lua.LUA_OK) {
-  const err = lua.lua_tostring(L, -1);
-  console.log('HARNESS FAILED:', err ? fengari.to_jsstring(err) : 'unknown');
-  process.exit(1);
+for (const mode of ['modern', 'legacy', 'both', 'unsupported', 'no-hasscript', 'no-enum', 'no-postcall']) {
+  const program = `local TOOLTIP_MODE = "${mode}"\n` + prelude + '\ndo\n' + addon + '\nend\n' + driver;
+  const L = lua.lua_newstate();
+  fengari.lualib.luaL_openlibs(L);
+  const status = lauxlib.luaL_dostring(L, fengari.to_luastring(program));
+  if (status !== lua.LUA_OK) {
+    const err = lua.lua_tostring(L, -1);
+    console.log(`HARNESS FAILED (${mode}):`, err ? fengari.to_jsstring(err) : 'unknown');
+    process.exit(1);
+  }
+  lua.lua_close(L);
 }

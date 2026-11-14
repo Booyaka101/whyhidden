@@ -64,8 +64,27 @@ GameTooltip = {
     AddLine = function(_, text) TOOLTIP_LINES[#TOOLTIP_LINES + 1] = tostring(text) end,
 }
 local HOOKS = {}
-GameTooltip.HookScript = function(_, name, fn) HOOKS[name] = fn end
-GameTooltip.HasScript = function(_, name) return true end
+local legacyTooltip = TOOLTIP_MODE == "legacy" or TOOLTIP_MODE == "both"
+GameTooltip.HookScript = function(_, name, fn)
+    assert(legacyTooltip and name == "OnTooltipSetUnit", "unsupported tooltip script: " .. name)
+    assert(not HOOKS[name], "duplicate legacy tooltip registration")
+    HOOKS[name] = fn
+end
+GameTooltip.HasScript = function(_, name) return legacyTooltip and name == "OnTooltipSetUnit" end
+if TOOLTIP_MODE == "no-hasscript" then GameTooltip.HasScript = nil end
+local POST_CALL
+if TOOLTIP_MODE == "modern" or TOOLTIP_MODE == "both" or TOOLTIP_MODE == "no-enum" or TOOLTIP_MODE == "no-postcall" then
+    Enum = { TooltipDataType = { Unit = 2 } }
+    TooltipDataProcessor = {
+        AddTooltipPostCall = function(dataType, fn)
+            assert(dataType == Enum.TooltipDataType.Unit, "wrong tooltip data type")
+            assert(not POST_CALL, "duplicate modern tooltip registration")
+            POST_CALL = fn
+        end,
+    }
+    if TOOLTIP_MODE == "no-enum" then Enum = nil end
+    if TOOLTIP_MODE == "no-postcall" then TooltipDataProcessor.AddTooltipPostCall = nil end
+end
 CURRENT_UNIT = nil
 GameTooltip.GetUnit = function() return UNITS[CURRENT_UNIT] and UNITS[CURRENT_UNIT].name, CURRENT_UNIT end
 

@@ -145,24 +145,30 @@ end
 
 -- Tooltip: one quiet line, only when something is actually hidden for that unit.
 -- Tooltips that say nothing new are noise; this stays silent on visible values.
--- HasScript check: the tooltip system changed in Midnight and OnTooltipSetUnit
--- may not exist on all clients (confirmed removed on Forever build 70338).
-if GameTooltip.HasScript and GameTooltip:HasScript("OnTooltipSetUnit") then
-    GameTooltip:HookScript("OnTooltipSetUnit", function(self)
-        if not restrictionsActive() then return end
-        local ok, _, unit = pcall(self.GetUnit, self)
-        if not ok or not unit then return end
-        local hidden = hiddenList(unit)
-        if #hidden > 0 then
-            self:AddLine("Hidden: " .. table.concat(hidden, ", "), 1, 0.6, 0.24, true)
-            local _, instanceType = GetInstanceInfo()
-            local where = instanceType == "arena" and " · arena"
-                or instanceType == "pvp" and " · battleground"
-                or instanceType == "raid" and " · raid"
-                or ""
-            self:AddLine("WhyHidden" .. where, 0.53, 0.53, 0.53)
-        end
-    end)
+local function annotateTooltip(self)
+    if self ~= GameTooltip then return end
+    if not restrictionsActive() then return end
+    local ok, _, unit = pcall(self.GetUnit, self)
+    if not ok or not unit then return end
+    local hidden = hiddenList(unit)
+    if #hidden > 0 then
+        self:AddLine("Hidden: " .. table.concat(hidden, ", "), 1, 0.6, 0.24, true)
+        local _, instanceType = GetInstanceInfo()
+        local where = instanceType == "arena" and " · arena"
+            or instanceType == "pvp" and " · battleground"
+            or instanceType == "raid" and " · raid"
+            or ""
+        self:AddLine("WhyHidden" .. where, 0.53, 0.53, 0.53)
+    end
+end
+
+-- Modern clients removed OnTooltipSetUnit. Register only one path so clients
+-- exposing both APIs do not get duplicate annotations.
+if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
+    and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit then
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, annotateTooltip)
+elseif GameTooltip.HasScript and GameTooltip:HasScript("OnTooltipSetUnit") then
+    GameTooltip:HookScript("OnTooltipSetUnit", annotateTooltip)
 end
 
 -- A client without C_Secrets (Classic flavours) never reaches any of the above in a

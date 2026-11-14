@@ -48,8 +48,9 @@ is dark right now. Same system, other side of the counter.
 ## Development
 
 `npm install && npm test` executes the addon under a Lua VM against a stubbed
-WoW client (13 assertion groups: login, tooltip gating, signature drift,
-channels, color integrity). No game install needed.
+WoW client (login, tooltip gating, signature drift, channels, color integrity).
+The suite runs against modern, legacy, overlapping and unavailable tooltip APIs,
+including clients that reject `OnTooltipSetUnit`. No game install needed.
 
 ## License
 
