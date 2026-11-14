@@ -1,7 +1,7 @@
 // Executes the real WhyHidden.lua under fengari against the stubbed client in
 // prelude.lua, then asserts behaviour through driver.lua. No WoW client needed.
 //
-//   npm install && npm test
+//   npm ci && npm test
 const fs = require('fs');
 const path = require('path');
 const fengari = require('fengari');
@@ -13,10 +13,11 @@ const read = (p) => fs.readFileSync(path.join(here, p), 'utf8');
 const prelude = read('prelude.lua');
 const addon = fs.readFileSync(path.join(here, '..', '..', 'WhyHidden.lua'), 'utf8');
 const driver = read('driver.lua');
+const regression = read('regression.lua');
 
 // the addon must load as if from its own chunk: wrap it so its locals stay scoped
 for (const mode of ['modern', 'legacy', 'both', 'unsupported', 'no-hasscript', 'no-enum', 'no-postcall']) {
-  const program = `local TOOLTIP_MODE = "${mode}"\n` + prelude + '\ndo\n' + addon + '\nend\n' + driver;
+  const program = `local TOOLTIP_MODE = "${mode}"\n` + prelude + '\ndo\n' + addon + '\nend\n' + driver + '\n' + regression;
   const L = lua.lua_newstate();
   fengari.lualib.luaL_openlibs(L);
   const status = lauxlib.luaL_dostring(L, fengari.to_luastring(program));

@@ -1,10 +1,10 @@
 -- Driver: fires the real addon through its real paths and asserts on behaviour.
 
+local assertions = 0
 local function expect(cond, msg)
+    assertions = assertions + 1
     if not cond then error("ASSERT FAILED: " .. msg, 0) end
 end
-
-local function lastOut(n) return OUT[#OUT - (n or 0)] end
 
 local tooltipCallback = POST_CALL or HOOKS["OnTooltipSetUnit"]
 if TOOLTIP_MODE == "modern" or TOOLTIP_MODE == "both" then
@@ -16,9 +16,11 @@ else
 end
 
 -- 1. PLAYER_LOGIN with restrictions on
-local dummyFrame = CreateFrame()
+local dummyFrame = FRAMES[1]
+expect(dummyFrame and dummyFrame.events.PLAYER_LOGIN, "login event not registered")
 EVENT_SCRIPTS["OnEvent"](dummyFrame, "PLAYER_LOGIN")
-expect(OUT[1] and OUT[1]:find("secret restrictions are active", 1, true), "login banner missing: " .. tostring(OUT[1]))
+expect(not dummyFrame.events.PLAYER_LOGIN, "login event not unregistered")
+expect(OUT[1] and OUT[1]:find("restrictions enabled", 1, true), "login banner missing: " .. tostring(OUT[1]))
 expect(OUT[1]:find("/whh", 1, true), "login banner lacks /whh hint")
 
 -- 2. Tooltip on fully-hidden enemy target
@@ -30,6 +32,7 @@ if tooltipCallback then
     expect(#TOOLTIP_LINES == 2, "expected 2 tooltip lines, got " .. #TOOLTIP_LINES)
     expect(TOOLTIP_LINES[1]:find("name", 1, true), "identity not listed: " .. TOOLTIP_LINES[1])
     expect(TOOLTIP_LINES[1]:find("health", 1, true), "health not listed")
+    expect(TOOLTIP_LINES[1]:find("stats", 1, true), "stats predicate signature mismatch")
     expect(TOOLTIP_LINES[1]:find("power max", 1, true), "power max not listed")
     expect(TOOLTIP_LINES[1]:find("threat", 1, true), "threat not listed for hostile")
     expect(TOOLTIP_LINES[2]:find("WhyHidden · arena", 1, true), "context tag missing: " .. TOOLTIP_LINES[2])
@@ -68,7 +71,7 @@ SECRETS.mode = "all"
 OUT = {}
 SlashCmdList.WHYHIDDEN("")
 expect(#OUT >= 4, "report too short: " .. #OUT)
-expect(OUT[1]:find("restrictions active", 1, true), "report header missing")
+expect(OUT[1]:find("restrictions enabled", 1, true), "report header missing")
 expect(OUT[2]:find("arena", 1, true), "context line missing")
 expect(OUT[3]:find("auras", 1, true) and OUT[3]:find("hidden", 1, true), "globals line missing")
 local youLine, targetLine
@@ -155,6 +158,3 @@ SECRETS.breakCooldowns = false
 OUT = {}
 SlashCmdList.WHYHIDDEN("banana")
 expect(#OUT >= 3, "garbage arg broke the report: " .. #OUT .. " lines")
-
-io.write("ALL CHECKS PASSED (" .. TOOLTIP_MODE .. ", " .. #OUT .. " lines in final report)\n")
-io.write(table.concat(OUT, "\n") .. "\n")

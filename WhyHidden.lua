@@ -9,24 +9,28 @@
 -- Every C_Secrets call is wrapped: the API is tagged AllowedWhenUntainted and the
 -- Forever beta moves week to week, so a signature change must degrade to "unknown"
 -- rather than throw. A nil return here always means "could not ask", never "visible".
+local function isPublic(value)
+    return not issecretvalue or not issecretvalue(value)
+end
+
 local function ask(fn, ...)
     local ok, result = pcall(fn, ...)
-    if ok then return result end
+    if ok and isPublic(result) and type(result) == "boolean" then return result end
     return nil
 end
 
-local function restrictionsActive()
-    return C_Secrets ~= nil and ask(C_Secrets.HasSecretRestrictions) == true
+local function restrictionStatus()
+    if C_Secrets then return ask(C_Secrets.HasSecretRestrictions) end
 end
 
 -- What can be hidden about a single unit. The label is what the player sees; keep
 -- them plain enough to read in a tooltip at a glance.
 local UNIT_CHECKS = {
     { label = "name",          fn = function(u) return C_Secrets.ShouldUnitIdentityBeSecret(u) end },
-    { label = "health",        fn = function(u) return C_Secrets.ShouldUnitHealthMaxBeSecret(u) end },
-    { label = "power",         fn = function(u) return C_Secrets.ShouldUnitPowerBeSecret(u, UnitPowerType(u)) end },
-    { label = "power max",     fn = function(u) return C_Secrets.ShouldUnitPowerMaxBeSecret(u, UnitPowerType(u)) end },
-    { label = "stats",         fn = function(u) return C_Secrets.ShouldUnitStatsBeSecret(u) end },
+    { label = "max health",    fn = function(u) return C_Secrets.ShouldUnitHealthMaxBeSecret(u) end },
+    { label = "power",         fn = function(u) return C_Secrets.ShouldUnitPowerBeSecret(u) end },
+    { label = "power max",     fn = function(u) return C_Secrets.ShouldUnitPowerMaxBeSecret(u) end },
+    { label = "stats",         fn = function() return C_Secrets.ShouldUnitStatsBeSecret() end },
     { label = "casting",       fn = function(u) return C_Secrets.ShouldUnitSpellCastingBeSecret(u) end },
 }
 
@@ -37,29 +41,40 @@ end
 -- The cast bar question mark is the most visible symptom of the whole system, so the
 -- spell currently being cast or channelled gets its own answer when there is one.
 -- UnitCastingInfo returns spellId 9th; UnitChannelInfo 8th (no castID in between).
-local function castHidden(unit)
-    local casting = UnitCastingInfo(unit)
-    local channeling = UnitChannelInfo(unit)
-    if casting and channeling then channeling = nil end -- cast wins; bar shows the cast
-    if casting then
-        return ask(C_Secrets.ShouldUnitSpellCastBeSecret, unit, select(9, casting))
+local function currentSpell(unit, fn, spellIndex)
+    local function read(...)
+        local name = ...
+        if not isPublic(name) then return nil end
+        if name == nil then return false end
+        local spellID = select(spellIndex, ...)
+        if isPublic(spellID) and type(spellID) == "number" then return spellID end
     end
-    if channeling then
-        return ask(C_Secrets.ShouldUnitSpellCastBeSecret, unit, select(8, channeling))
-    end
-    return false
+    -- Keep the full return tuple and inspect only public metadata. A secret name
+    -- or spell ID means unknown, not permission to infer the hidden cast.
+    local ok, spellID = pcall(function() return read(fn(unit)) end)
+    if ok then return spellID end
+    return nil
 end
 
--- The C_Secrets predicates only answer yes or no; the reason is inferred from where
--- you are. That is honest as long as the wording stays a context, not a claimed cause.
+local function castHidden(unit)
+    local spellID = currentSpell(unit, UnitCastingInfo, 9)
+    if spellID == false then spellID = currentSpell(unit, UnitChannelInfo, 8) end
+    if spellID == false then return false end
+    if spellID == nil then return nil end
+    return ask(C_Secrets.ShouldUnitSpellCastBeSecret, unit, spellID)
+end
+
+-- Location is context, not proof that a particular restriction is active.
 local function contextLine()
     local _, instanceType = GetInstanceInfo()
     if instanceType == "arena" then
-        return "In an arena: values are hidden so addons cannot decide for you."
+        return "In an arena: restrictions can hide values from addons."
     elseif instanceType == "pvp" then
-        return "In a battleground: values are hidden so addons cannot decide for you."
+        return "In a battleground: restrictions can hide values from addons."
     elseif instanceType == "raid" then
-        return "In a raid encounter: values are hidden so addons cannot decide for you."
+        return "In a raid: restrictions can hide values from addons."
+    elseif instanceType == "party" then
+        return "In a dungeon: restrictions can hide values from addons."
     end
     return nil
 end
@@ -89,11 +104,12 @@ local GREEN = "|cff3cc94a"
 
 local function describeUnit(unit, prefix)
     if not UnitExists(unit) then return end
-    local name = UnitName(unit)
+    local ok, name = pcall(UnitName, unit)
+    if not ok or not isPublic(name) or type(name) ~= "string" then name = unit end
     local hidden, unknown = hiddenList(unit)
     local summary
     if #hidden == 0 and unknown == 0 then
-        summary = GREEN .. "nothing hidden|r"
+        summary = GREEN .. "nothing hidden in checked values|r"
     elseif #hidden == 0 then
         summary = GREY .. "unknown (" .. unknown .. ")|r"
     else
@@ -102,7 +118,7 @@ local function describeUnit(unit, prefix)
             summary = summary .. GREY .. " (+" .. unknown .. " unknown)|r"
         end
     end
-    print(prefix .. " " .. (name or unit) .. ": " .. summary)
+    print(prefix .. " " .. name .. ": " .. summary)
 end
 
 local function reportGlobal()
@@ -117,11 +133,16 @@ local function reportGlobal()
 end
 
 local function report(unitArg)
-    if not restrictionsActive() then
-        print("WhyHidden: this client is not hiding anything. (HasSecretRestrictions is false.)")
+    local restrictions = restrictionStatus()
+    if restrictions ~= true then
+        if restrictions == false then
+            print("WhyHidden: this client is not hiding anything. (HasSecretRestrictions is false.)")
+        else
+            print("WhyHidden: restriction status unknown. The C_Secrets API is unavailable or could not be queried.")
+        end
         return
     end
-    print("WhyHidden: restrictions active.")
+    print("WhyHidden: secret-value restrictions enabled.")
     local context = contextLine()
     if context then print(GREY .. "  " .. context .. "|r") end
     reportGlobal()
@@ -140,6 +161,12 @@ SLASH_WHYHIDDEN1 = "/whh"
 SLASH_WHYHIDDEN2 = "/whyhidden"
 SlashCmdList.WHYHIDDEN = function(msg)
     local arg = strlower(strtrim(msg or ""))
+    if arg == "help" or arg == "?" then
+        print("WhyHidden: /whh reports your target (or mouseover if no target).")
+        print("  /whh mouse (or /whh m) prefers mouseover; /whyhidden is an alias.")
+        print("  Hidden values stay hidden; unavailable queries are reported as unknown.")
+        return
+    end
     report((arg == "mouse" or arg == "m") and "mouse" or nil)
 end
 
@@ -147,16 +174,19 @@ end
 -- Tooltips that say nothing new are noise; this stays silent on visible values.
 local function annotateTooltip(self)
     if self ~= GameTooltip then return end
-    if not restrictionsActive() then return end
+    if restrictionStatus() ~= true then return end
     local ok, _, unit = pcall(self.GetUnit, self)
-    if not ok or not unit then return end
-    local hidden = hiddenList(unit)
+    if not ok or not isPublic(unit) or type(unit) ~= "string" or not UnitExists(unit) then return end
+    local hidden, unknown = hiddenList(unit)
     if #hidden > 0 then
-        self:AddLine("Hidden: " .. table.concat(hidden, ", "), 1, 0.6, 0.24, true)
+        local summary = "Hidden: " .. table.concat(hidden, ", ")
+        if unknown > 0 then summary = summary .. " (+" .. unknown .. " unknown)" end
+        self:AddLine(summary, 1, 0.6, 0.24, true)
         local _, instanceType = GetInstanceInfo()
         local where = instanceType == "arena" and " · arena"
             or instanceType == "pvp" and " · battleground"
             or instanceType == "raid" and " · raid"
+            or instanceType == "party" and " · dungeon"
             or ""
         self:AddLine("WhyHidden" .. where, 0.53, 0.53, 0.53)
     end
@@ -178,7 +208,7 @@ f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function(self, event)
     self:UnregisterEvent(event)
     if C_Secrets == nil then return end
-    if ask(C_Secrets.HasSecretRestrictions) then
-        print("WhyHidden: secret restrictions are active. " .. GREY .. "/whh|r to ask what is hidden.")
+    if restrictionStatus() == true then
+        print("WhyHidden: secret-value restrictions enabled. " .. GREY .. "/whh|r to ask what is hidden.")
     end
 end)
